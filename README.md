@@ -16,12 +16,7 @@ Um sistema desenvolvido para ajudar no cadastro e reservas de clientes no hotel 
 ---
 
 ### Ferramentas
-* Canva para prototipagem de telas
-* Word para documentação
-* Github para abrigagem de codigo e arquivos
-* VScode studio para progamação de backend e interface
-* Astha para desenhos de diagramas e fluxogramas
-* MySQL workbench para desenvolvimento do banco de dados
+a definir
 
 ---
 
