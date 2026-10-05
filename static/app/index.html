@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4C7F42">
+<title>Hotel Shiva - Funcionário</title>
+<link rel="icon" href="/static/img/icone.png">
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/shiva.css">
+</head>
+<body class="app">
+<div class="celular">
+  <header class="app-topo"><button id="vt" onclick="voltar()" aria-label="Voltar" hidden>‹</button><h1 id="titulo">Hotel Shiva</h1><img src="/static/img/icone.png" alt="Hotel Shiva"></header>
+  <div id="view"></div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+const S = {cod: '', hist: [], atual: null, form: null, termos: {}};
+const erroBox = `<div id="erro"></div>`;
+function T(titulo, html) { $('#titulo').textContent = titulo; $('#vt').hidden = !S.hist.length; $('#view').innerHTML = html; $('#view').scrollTop = 0; }
+function ir(fn) { if (S.atual) S.hist.push(S.atual); S.atual = fn; fn(); }
+function voltar() { const f = S.hist.pop(); if (f) { S.atual = f; f(); } else inicio(); }
+function inicio() {
+  S.hist = []; S.atual = inicio; S.form = null;
+  T('Hotel Shiva', `<p>Sistema para funcionários do hotel.</p><div class="grade">
+    <button class="tile sol" onclick="ir(consultar)">Consultar</button>
+    <button class="tile" onclick="ir(cadFuncCodigo)">Cadastrar funcionário</button>
+    <button class="tile" onclick="ir(cadCliCodigo)">Cadastrar cliente</button></div>`);
+}
+// pede um código; gerente=true exige código de gerente (validado no servidor)
+function pedirCodigo(titulo, texto, gerente, next) {
+  window._next = next;
+  T(titulo, `<p>${texto}</p>${campo(gerente ? 'Código de gerente' : 'Código de funcionário', 'codigo', gerente ? '' : S.cod, 'text', 'autocapitalize="characters"')}${erroBox}
+    <button class="btn" onclick="validarCodigo(${gerente})">Entrar</button>`);
+}
+async function validarCodigo(gerente) {
+  const c = val('codigo');
+  try { await api('/func/validar', {method: 'POST', codigo: c, body: {gerente}}); if (!gerente) S.cod = c; window._next(c); }
+  catch (e) { mostrarErro(e); }
+}
+const comCod = fn => S.cod ? fn(S.cod) : pedirCodigo('Identificação', 'Informe o seu código de funcionário.', false, fn);
+
+// ---------- cadastro de cliente ----------
+function cadCliCodigo() { pedirCodigo('Cadastrar cliente', 'Para iniciar o cadastro, insira o seu código de funcionário.', false, () => ir(cadCliForm)); }
+function cadCliForm() {
+  const d = S.form || {};
+  T('Dados do cliente', camposPessoa(d, 'cliente') + campo('Código de cliente relacionado (opcional)', 'relacionados', d.relacionados) + erroBox +
+    `<button class="btn" onclick="cadCliPrev()">Finalizar cadastro</button>`);
+}
+async function cadCliPrev() {
+  const d = {...lerPessoa('cliente'), relacionados: val('relacionados')};
+  try {
+    const r = await api('/func/clientes/preview', {method: 'POST', body: d, codigo: S.cod}); S.form = d;
+    if (r.existe) return ir(() => T('Cliente já cadastrado!', `<p class="grande-msg">Código do cliente ${r.codigo}</p><button class="btn" onclick="ir(()=>reservaForm('${r.codigo}'))">Fazer reserva</button>`));
+    ir(() => T('Confirmar dados', `<div class="dados">${linha('Nome', esc(d.nome))}${linha('CPF', esc(d.cpf))}${linha('Nascimento', dataBR(d.nascimento))}${linha('Endereço', endereco(d))}
+      ${linha('E-mail', esc(d.email))}${linha('Telefone', esc(d.telefone))}${linha('Código do cliente', `${r.codigo} <span class="imutavel">- imutável</span>`)}</div>
+      <button class="btn" onclick="voltar()">Editar informações</button><button class="btn" onclick="cadCliOk('${r.codigo}')">Confirmar cadastro</button>`));
+  } catch (e) { mostrarErro(e); }
+}
+async function cadCliOk(codigo) {
+  try { const r = await api('/func/clientes', {method: 'POST', body: {...S.form, codigo}, codigo: S.cod}); S.form = null; S.hist = []; S.atual = inicio; ir(() => reservaForm(r.codigo)); }
+  catch (e) { alert(e.message); }
+}
+
+// ---------- cadastro / edição de funcionário (gerente) ----------
+function cadFuncCodigo() { pedirCodigo('Cadastrar funcionário', 'Somente o gerente pode cadastrar funcionários.', true, c => { S.g = c; ir(cadFuncForm); }); }
+function cadFuncForm() {
+  T('Dados do funcionário', camposPessoa(S.form || {}, 'funcionario') + erroBox + `<button class="btn" onclick="cadFuncPrev()">Finalizar cadastro</button>`);
+}
+async function cadFuncPrev() {
+  const d = lerPessoa('funcionario');
+  try {
+    const r = await api('/func/funcionarios/preview', {method: 'POST', body: d, codigo: S.g}); S.form = d;
+    if (r.existe) return ir(() => T('Funcionário já cadastrado!', `<p class="grande-msg">Código do funcionário ${r.codigo}</p><button class="btn" onclick="inicio()">Voltar</button>`));
+    ir(() => T('Confirmar dados', `<div class="dados">${linha('Nome', esc(d.nome))}${linha('CPF', esc(d.cpf))}${linha('Nascimento', dataBR(d.nascimento))}${linha('Endereço', endereco(d))}
+      ${linha('Cargo', esc(d.cargo))}${linha('Telefone', esc(d.telefone))}${linha('Código do funcionário', `${r.codigo} <span class="imutavel">- imutável</span>`)}</div>
+      <button class="btn" onclick="voltar()">Editar informações</button><button class="btn" onclick="cadFuncOk('${r.codigo}')">Confirmar cadastro</button>`));
+  } catch (e) { mostrarErro(e); }
+}
+async function cadFuncOk(codigo) {
+  try { await api('/func/funcionarios', {method: 'POST', body: {...S.form, codigo}, codigo: S.g}); S.form = null;
+    T('Funcionário cadastrado', `<p class="grande-msg">Cadastro concluído!</p><p>Código do funcionário: <b>${codigo}</b></p><button class="btn" onclick="inicio()">Voltar ao início</button>`); }
+  catch (e) { alert(e.message); }
+}
+
+// ---------- consultar ----------
+function consultar() {
+  S.termos = {};
+  T('Consultar', `<p>Selecione a informação que você deseja buscar.</p><div class="grade">
+    <button class="tile" onclick="ir(()=>buscar('clientes'))">Cliente</button>
+    <button class="tile" onclick="ir(()=>buscar('funcionarios'))">Funcionário</button>
+    <button class="tile" onclick="ir(buscarQuarto)">Quarto</button></div>`);
+}
+function buscar(tipo, termo = S.termos[tipo] || '') {
+  const cli = tipo === 'clientes';
+  T(cli ? 'Consultar cliente' : 'Consultar funcionário', `${campo(`Informe o código ou nome do ${cli ? 'cliente' : 'funcionário'}`, 'busca', termo)}${erroBox}
+    <button class="btn" onclick="rodarBusca('${tipo}')">Buscar</button><div id="res"></div>`);
+  if (termo) rodarBusca(tipo);
+}
+async function rodarBusca(tipo) {
+  const cli = tipo === 'clientes'; S.termos[tipo] = val('busca');
+  try {
+    const rs = await api(`/func/${tipo}?q=${encodeURIComponent(val('busca'))}`); S.rs = rs;
+    $('#erro').innerHTML = '';
+    $('#res').innerHTML = !rs.length
+      ? `<hr><p class="grande-msg">${cli ? 'Cliente' : 'Funcionário'} não encontrado</p><button class="btn" onclick="${cli ? 'ir(cadCliCodigo)' : 'ir(cadFuncCodigo)'}">Cadastrar</button>`
+      : rs.map((r, i) => `<hr><div class="dados">${linha('Nome', esc(r.nome))}${linha('Código', r.codigo)}${linha('CPF', esc(r.cpf))}${linha('Nascimento', dataBR(r.nascimento))}
+          ${cli ? linha('E-mail', esc(r.email)) : linha('Cargo', esc(r.cargo) + (r.nivel === 'gerente' ? ' (gerente)' : ''))}${linha('Telefone', esc(r.telefone))}${linha('Endereço', endereco(r))}
+          ${cli ? linha('Relacionados', esc(r.relacionados || '-')) : ''}</div>
+          <button class="btn" onclick="${cli ? `editarCli(${i})` : `ir(()=>pedirCodigo('Editar funcionário','Somente o gerente pode editar os dados do funcionário.',true,c=>{S.g=c;ir(()=>editarFunc(${i}))}))`}">Editar</button>
+          ${cli ? `<button class="btn" onclick="ir(()=>reservaForm('${r.codigo}'))">Fazer reserva</button>` : ''}
+          <button class="btn perigo" onclick="apagarPessoa('${tipo}','${r.codigo}')">Apagar</button>`).join('');
+  } catch (e) { mostrarErro(e); }
+}
+function editarCli(i) { comCod(c => ir(() => formEdicao('clientes', S.rs[i], c))); }
+function editarFunc(i) { formEdicao('funcionarios', S.rs[i], S.g); }
+function formEdicao(tipo, r, codigo) {
+  const cli = tipo === 'clientes'; S.ed = {tipo, codigo, alvo: r.codigo};
+  T('Editar dados', camposPessoa(r, cli ? 'cliente' : 'funcionario') + `<p class="imutavel">Código ${r.codigo} - imutável</p>${erroBox}
+    <button class="btn" onclick="salvarEdicao()">Finalizar edição</button><button class="btn sec" onclick="voltar()">Cancelar</button>`);
+}
+async function salvarEdicao() {
+  const {tipo, codigo, alvo} = S.ed;
+  try { await api(`/func/${tipo}/${alvo}`, {method: 'PUT', body: lerPessoa(tipo === 'clientes' ? 'cliente' : 'funcionario'), codigo}); voltar(); }
+  catch (e) { mostrarErro(e); }
+}
+function apagarPessoa(tipo, cod) {
+  const nome = tipo === 'clientes' ? 'cliente' : 'funcionário';
+  ir(() => pedirCodigo('Apagar ' + nome, `Para apagar esse ${nome}, digite o código de gerente.`, true, g =>
+    ir(() => T('Confirmar', `<p class="grande-msg">Deseja apagar esse ${nome}?</p>
+      <button class="btn sec" onclick="voltar()">Cancelar</button><button class="btn perigo" onclick="apagarOk('${tipo}','${cod}','${g}')">Prosseguir</button>`))));
+}
+async function apagarOk(tipo, cod, g) {
+  try { await api(`/func/${tipo}/${cod}`, {method: 'DELETE', codigo: g}); S.hist = [inicio];
+    T('Removido', `<p class="grande-msg">Cadastro apagado com sucesso!</p><button class="btn" onclick="inicio()">Voltar ao início</button>`); }
+  catch (e) { alert(e.message); }
+}
+
+// ---------- quartos ----------
+function buscarQuarto() {
+  T('Consultar quarto', `${campo('Informe o número do quarto (ex.: A1)', 'nq')}${erroBox}
+    <button class="btn" onclick="verQuarto(val('nq'))">Buscar</button><button class="btn sec" onclick="ir(mapa)">Mapa de quartos</button>`);
+}
+async function mapa() {
+  const a = await api('/andares');
+  T('Mapa de andares', `<p>Selecione um andar para ver os quartos e sua descrição.</p><div class="grade">${a.map(x => `<button class="tile" onclick="ir(()=>andar('${x.letra}'))">Andar ${x.letra}<small>${x.status}</small></button>`).join('')}</div>`);
+}
+async function andar(letra) {
+  const qs = await api(`/andares/${letra}/quartos`);
+  T('Andar ' + letra, `<p>Selecione um quarto para ver sua descrição.</p><div class="grade">${qs.map(q => `<button class="tile ${q.status === 'livre' ? 'sol' : ''}" onclick="verQuarto('${q.numero}')">${q.numero}<small>${q.status}</small></button>`).join('')}</div>`);
+}
+async function verQuarto(numero) {
+  try {
+    const r = await api('/func/quartos/' + encodeURIComponent(numero)); S.q = r;
+    ir(() => {
+      const q = r.quarto, res = r.reserva;
+      T('Quarto ' + q.numero, `<p><span class="tag ${q.status}">${q.status}</span></p><p>${descQuarto(q)}</p><p>${esc(q.descricao)}</p><p>Diária: <b>${brl(q.valor_diaria)}</b></p>` +
+        (res ? `<hr><h3>Quarto ${q.numero}: reservado</h3>${blocoReserva(res)}` : `<h3>Quarto ${q.numero}: livre</h3>`) +
+        (r.futuras.length ? `<hr><h3>Próximas reservas</h3>${r.futuras.map(blocoReserva).join('')}` : '') +
+        `<button class="btn" onclick="ir(()=>reservaForm('', '${q.numero}'))">Fazer reserva</button><button class="btn sec" onclick="comCod(()=>ir(()=>editarQuarto('${q.numero}')))">Editar informações</button>`);
+    });
+  } catch (e) { mostrarErro(e); }
+}
+const descQuarto = q => [q.camas_casal ? `${q.camas_casal} cama de casal` : '', q.camas_solteiro ? `${q.camas_solteiro} cama de solteiro` : '', q.ar ? 'ar-condicionado' : '', q.banheira ? 'banheira' : ''].filter(Boolean).join(' · ');
+const blocoReserva = r => `<div class="dados">${linha('Cliente', esc(r.nome_cliente))}${linha('Código cliente', r.cod_cliente)}${linha('Código funcionário', r.cod_funcionario ?? '-')}${linha('Data de reserva', `${dataBR(r.entrada)} a ${dataBR(r.saida)}`)}</div>
+  <button class="btn" onclick="comCod(()=>ir(()=>editarReserva(${r.id},'${r.entrada}','${r.saida}')))">Editar reserva</button><button class="btn perigo" onclick="comCod(()=>apagarReserva(${r.id}))">Apagar reserva</button>`;
+function editarQuarto(numero) {
+  const q = S.q.quarto;
+  T('Editar quarto ' + numero, `<label for="desc">Inserir descrição do quarto (até 200 caracteres)</label><textarea id="desc" rows="4" maxlength="200">${esc(q.descricao)}</textarea>
+    <label><input type="checkbox" id="inter" style="width:auto" ${q.interditado ? 'checked' : ''}> Quarto interditado</label>${erroBox}
+    <button class="btn sec" onclick="voltar()">Cancelar</button><button class="btn" onclick="salvarQuarto('${numero}')">Concluído</button>`);
+}
+async function salvarQuarto(numero) {
+  try { await api('/func/quartos/' + numero, {method: 'PUT', body: {descricao: val('desc'), interditado: $('#inter').checked ? 1 : 0}, codigo: S.cod}); S.hist.pop(); S.atual = S.hist.pop() || inicio; verQuarto(numero); }
+  catch (e) { mostrarErro(e); }
+}
+
+// ---------- reservas ----------
+function reservaForm(cliente = '', quarto = '') {
+  T('Fazer reserva', `${campo('Código do funcionário', 'rf', S.cod, 'text', 'autocapitalize="characters"')}${campo('Código do cliente', 'rc', cliente, 'text', 'autocapitalize="characters"')}${campo('Quarto', 'rq', quarto)}
+    <div class="lin2"><div>${campo('Entrada', 're', '', 'date', `min="${hojeISO()}"`)}</div><div>${campo('Saída', 'rs', '', 'date', `min="${hojeISO()}"`)}</div></div>${erroBox}
+    <button class="btn" onclick="verificarReserva()">Consultar quarto</button>`);
+}
+async function verificarReserva() {
+  const f = val('rf'), d = {cod_cliente: val('rc'), quarto: val('rq'), entrada: val('re'), saida: val('rs')};
+  try {
+    await api('/func/validar', {method: 'POST', codigo: f, body: {}}); S.cod = f;
+    const r = await api('/func/reservas/verificar', {method: 'POST', body: d, codigo: f});
+    ir(() => r.livre
+      ? T('Quarto livre', `<p class="grande-msg">Valor: ${brl(r.valor)}</p><button class="btn" onclick="confirmarReserva()">Confirmar</button><button class="btn sec" onclick="voltar()">Voltar</button>`)
+      : T('Indisponível', `<p class="grande-msg">Quarto reservado nessa data</p><button class="btn" onclick="voltar()">Voltar</button>`));
+    S.rd = d;
+  } catch (e) { mostrarErro(e); }
+}
+async function confirmarReserva() {
+  try { await api('/func/reservas', {method: 'POST', body: S.rd, codigo: S.cod}); S.hist = [];
+    T('Reserva feita', `<p class="grande-msg">Reserva concluída com sucesso! Realize o pagamento no caixa</p><button class="btn" onclick="inicio()">Voltar</button>`); }
+  catch (e) { alert(e.message); }
+}
+function editarReserva(id, entrada, saida) {
+  T('Editar reserva', `<div class="lin2"><div>${campo('Nova entrada', 'ne', entrada, 'date')}</div><div>${campo('Nova saída', 'ns', saida, 'date')}</div></div>${erroBox}
+    <button class="btn" onclick="alterarReserva(${id})">Alterar</button>`);
+}
+async function alterarReserva(id) {
+  try { const r = await api('/func/reservas/' + id, {method: 'PUT', body: {entrada: val('ne'), saida: val('ns')}, codigo: S.cod}); S.hist = [inicio];
+    T('Reserva alterada', `<p class="grande-msg">Reserva alterada, o valor ficou em ${brl(r.valor)}</p><p>Comunique o cliente ${r.cod_cliente} para entrar em contato com o financeiro e regularizar quaisquer diferenças no valor.</p><button class="btn" onclick="inicio()">Voltar</button>`); }
+  catch (e) { mostrarErro(e); }
+}
+async function apagarReserva(id) {
+  if (!confirm('Apagar esta reserva?')) return;
+  await api('/func/reservas/' + id, {method: 'DELETE', codigo: S.cod}); S.hist = [];
+  T('Reserva cancelada', `<p class="grande-msg">Reserva cancelada com sucesso!</p><button class="btn" onclick="inicio()">Voltar a visualizar os quartos</button>`);
+}
+
+inicio();
+</script>
+</body>
+</html>

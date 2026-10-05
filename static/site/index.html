@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hotel Shiva</title>
+<link rel="icon" href="/static/img/icone.png">
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/shiva.css">
+</head>
+<body>
+<div id="topo"></div>
+<div id="tela"></div>
+<script src="/static/common.js"></script>
+<script>
+const S = {cli: null, timer: null};
+
+// ---------- estrutura ----------
+function pagina(html) {          // páginas internas: topo + conteúdo
+  clearInterval(S.timer);
+  $('#topo').innerHTML = `<header class="topo"><img src="/static/img/logo.png" alt="Hotel Shiva" onclick="home()">` +
+    (S.cli ? `<nav><button onclick="home()">Início</button><button onclick="dados()">Meus dados</button><button onclick="andares()">Fazer reserva</button><button onclick="reservas()">Minhas reservas</button><button onclick="sair()">Sair</button></nav>` : '') + `</header>`;
+  $('#tela').innerHTML = `<main class="site"><div class="painel">${html}</div></main>`;
+  window.scrollTo(0, 0);
+}
+function entrada(html) {         // login: logo grande ao lado
+  clearInterval(S.timer); $('#topo').innerHTML = '';
+  $('#tela').innerHTML = `<div class="entrada"><div class="lado"><img src="/static/img/logo.png" alt="Hotel Shiva"></div><div class="form"><div>${html}</div></div></div>`;
+}
+const erroBox = `<div id="erro"></div>`;
+
+// ---------- login / cadastro / recuperação ----------
+function telaLogin() {
+  S.cli = null;
+  entrada(`<h1>Entrar</h1>${campo('Código de usuário', 'codigo', '', 'text', 'autocomplete="username"')}
+    ${campo('Senha', 'senha', '', 'password', 'inputmode="numeric" maxlength="8"')}${erroBox}
+    <button class="btn" onclick="login()">Entrar</button>
+    <p>Não tem conta? <button class="link" onclick="telaCadastro()"><b>Cadastrar</b></button></p>
+    <p><button class="link" onclick="rec1()">Não lembro minha senha</button></p>`);
+}
+async function login() {
+  try { S.cli = (await api('/cliente/login', {method: 'POST', body: {codigo: val('codigo'), senha: val('senha')}})).cliente; home(); }
+  catch (e) { e.data?.naoEncontrado ? naoEncontrado() : mostrarErro(e); }
+}
+function naoEncontrado() {
+  entrada(`<h1>Não achamos seu login</h1><p>Faça seu cadastro para reservar.</p><button class="btn" onclick="telaCadastro()">Cadastrar</button><button class="btn sec" onclick="telaLogin()">Voltar</button>`);
+}
+function telaCadastro() {
+  pagina(`<h2>Cadastro de cliente</h2>${camposPessoa({}, 'cliente')}${campo('Senha (até 8 números)', 'senha', '', 'password', 'inputmode="numeric" maxlength="8"')}${erroBox}
+    <button class="btn" onclick="cadastrar()">Finalizar cadastro</button><button class="btn sec" onclick="telaLogin()">Cancelar</button>`);
+}
+async function cadastrar() {
+  try {
+    const r = await api('/cliente/cadastro', {method: 'POST', body: {...lerPessoa('cliente'), senha: val('senha')}});
+    S.cli = await api('/cliente/me');
+    pagina(`<h2>Cadastro concluído!</h2><p>Guarde seu código de usuário, você vai usá-lo para entrar:</p><p class="relogio">${r.codigo}</p><button class="btn" onclick="home()">Continuar</button>`);
+  } catch (e) { mostrarErro(e); }
+}
+function rec1() {
+  pagina(`<h2>Recuperar senha</h2><p>Para recuperar a senha, digite seu e-mail.</p>${campo('E-mail', 'email', '', 'email')}${erroBox}
+    <button class="btn" onclick="rec1ok()">Prosseguir</button><button class="btn sec" onclick="telaLogin()">Voltar</button>`);
+}
+async function rec1ok() {
+  try { const r = await api('/senha/email', {method: 'POST', body: {email: val('email')}}); rec2(val('email'), r.codigo_demo); }
+  catch (e) { mostrarErro(e); }
+}
+function rec2(email, demo) {
+  pagina(`<h2>Recuperar senha</h2><p>Digite o código que foi enviado no seu e-mail.</p>
+    <p class="imutavel">Demonstração (sem servidor de e-mail): seu código é ${esc(demo)}</p>${campo('Código', 'codigo', '', 'text', 'inputmode="numeric"')}${erroBox}
+    <button class="btn" onclick="rec2ok('${esc(email)}')">Prosseguir</button>`);
+}
+async function rec2ok(email) {
+  try { await api('/senha/codigo', {method: 'POST', body: {email, codigo: val('codigo')}}); rec3(email, val('codigo')); }
+  catch (e) { mostrarErro(e); }
+}
+function rec3(email, cod) {
+  pagina(`<h2>Recuperar senha</h2>${campo('Digite sua nova senha (até 8 números)', 'senha', '', 'password', 'inputmode="numeric" maxlength="8"')}${erroBox}
+    <button class="btn" onclick="rec3ok('${esc(email)}','${esc(cod)}')">Prosseguir</button>`);
+}
+async function rec3ok(email, codigo) {
+  try { await api('/senha/nova', {method: 'POST', body: {email, codigo, senha: val('senha')}}); telaLogin(); }
+  catch (e) { mostrarErro(e); }
+}
+async function sair() { await api('/cliente/logout', {method: 'POST'}); telaLogin(); }
+
+// ---------- área do cliente ----------
+function home() {
+  if (!S.cli) return telaLogin();
+  pagina(`<h1>Bem-vindo, ${esc(S.cli.nome.split(' ')[0])}!</h1><p>O que deseja fazer?</p>
+    <div class="grade"><button class="tile" onclick="dados()">Meus dados</button><button class="tile sol" onclick="andares()">Fazer reserva</button><button class="tile" onclick="reservas()">Minhas reservas</button></div>`);
+}
+function dados() {
+  const c = S.cli;
+  pagina(`<h2>Meus dados</h2><div class="dados">${linha('Nome', esc(c.nome))}${linha('CPF', esc(c.cpf))}${linha('Nascimento', dataBR(c.nascimento))}${linha('Endereço', endereco(c))}
+    ${linha('E-mail', esc(c.email))}${linha('Telefone', esc(c.telefone))}${linha('Senha', '••••••••')}${linha('Código do cliente', `${c.codigo} <span class="imutavel">- imutável</span>`)}</div>
+    <button class="btn" onclick="editarDados()">Editar informações</button>`);
+}
+function editarDados() {
+  pagina(`<h2>Editar dados</h2>${camposPessoa(S.cli, 'cliente')}${campo('Nova senha (deixe em branco para manter)', 'senha', '', 'password', 'inputmode="numeric" maxlength="8"')}
+    <p class="imutavel">O código do cliente (${S.cli.codigo}) não pode ser alterado.</p>${erroBox}
+    <button class="btn" onclick="salvarDados()">Finalizar edição</button><button class="btn sec" onclick="dados()">Cancelar</button>`);
+}
+async function salvarDados() {
+  try { S.cli = (await api('/cliente/me', {method: 'PUT', body: {...lerPessoa('cliente'), senha: val('senha')}})).cliente; dados(); }
+  catch (e) { mostrarErro(e); }
+}
+
+// ---------- reservar ----------
+async function andares() {
+  const a = await api('/andares');
+  pagina(`<h2>Escolha um andar</h2><div class="grade">${a.map(x => `<button class="tile" onclick="quartos('${x.letra}')">Andar ${x.letra}<small>${x.quartos} quartos · ${x.status}</small></button>`).join('')}</div>`);
+}
+async function quartos(letra) {
+  const qs = await api(`/andares/${letra}/quartos`);
+  pagina(`<h2>Andar ${letra}</h2>${qs.length ? `<div class="grade">${qs.map(q => `<button class="tile ${q.status === 'livre' ? 'sol' : ''}" onclick="quarto('${q.numero}')">Quarto ${q.numero}<small>${brl(q.valor_diaria)} / diária</small></button>`).join('')}</div>` : '<p>Nenhum quarto neste andar.</p>'}
+    <button class="btn sec" onclick="andares()">Voltar</button>`);
+}
+const descQuarto = q => [q.camas_casal ? `${q.camas_casal} cama de casal` : '', q.camas_solteiro ? `${q.camas_solteiro} cama de solteiro` : '', q.ar ? 'ar-condicionado' : '', q.banheira ? 'banheira' : ''].filter(Boolean).join(' · ');
+async function quarto(numero, res = '') {
+  const q = await api('/quartos/' + numero);
+  pagina(`<h2>Quarto ${q.numero}</h2><p>${descQuarto(q)}</p><p>${esc(q.descricao)}</p><p>Diária: <b>${brl(q.valor_diaria)}</b></p>
+    <div class="lin2"><div>${campo('Entrada', 'entrada', '', 'date', `min="${hojeISO()}"`)}</div><div>${campo('Saída', 'saida', '', 'date', `min="${hojeISO()}"`)}</div></div>${erroBox}
+    <button class="btn" onclick="disp('${q.numero}')">Confirmar disponibilidade</button><button class="btn sec" onclick="quartos('${q.andar}')">Voltar</button><div id="res"></div>`);
+}
+async function disp(numero) {
+  const b = {entrada: val('entrada'), saida: val('saida')};
+  try {
+    const r = await api(`/quartos/${numero}/disponibilidade`, {method: 'POST', body: b});
+    $('#erro').innerHTML = '';
+    $('#res').innerHTML = r.livre
+      ? `<hr><h3>Quarto livre - valor para a data: ${brl(r.valor)}</h3>${campo('Código do cliente', 'cc', S.cli.codigo, 'text', 'readonly')}${campo('Quarto', 'qq', numero, 'text', 'readonly')}
+         <button class="btn" onclick="reservar('${numero}','${b.entrada}','${b.saida}')">Confirmar reserva</button>`
+      : `<hr><h3>Quarto reservado nessa data</h3><button class="btn sec" onclick="quarto('${numero}')">Voltar</button>`;
+  } catch (e) { mostrarErro(e); }
+}
+async function reservar(quarto, entrada, saida) {
+  try { pagamento((await api('/cliente/reservas', {method: 'POST', body: {quarto, entrada, saida}})).reserva); }
+  catch (e) { alert(e.message); }
+}
+function pagamento(r) {
+  pagina(`<p class="imutavel">Você tem <span id="rel">--:--</span> para realizar o pagamento. A reserva será cancelada ao passar do tempo indicado.</p>
+    <p class="grande-msg">Reserva concluída com sucesso! Realize o pagamento de ${brl(r.valor)}</p><div id="pg">
+    <button class="btn" onclick="pagar(${r.id},'pix')">Pix</button><button class="btn" onclick="pagar(${r.id},'transferência')">Transferência</button>
+    <button class="btn perigo" onclick="cancelar(${r.id},true)">Cancelar</button></div>`);
+  const fim = new Date(r.expira_em).getTime();
+  S.timer = setInterval(() => {
+    const s = Math.max(0, Math.round((fim - Date.now()) / 1000));
+    if ($('#rel')) $('#rel').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    if (!s) { clearInterval(S.timer); $('#pg').innerHTML = aviso('Tempo esgotado: a reserva foi cancelada.') + `<button class="btn" onclick="andares()">Fazer nova reserva</button>`; }
+  }, 500);
+}
+async function pagar(id, forma) {
+  try { await api(`/cliente/reservas/${id}/pagar`, {method: 'POST', body: {forma}}); clearInterval(S.timer);
+    $('#pg').innerHTML = aviso(`Pagamento por ${forma} confirmado. Boa estadia!`, true) + `<button class="btn" onclick="reservas()">Minhas reservas</button>`; }
+  catch (e) { alert(e.message); }
+}
+async function cancelar(id, dePagamento = false) {
+  if (!confirm('Cancelar esta reserva? Para estorno ou alterações depois de paga, fale com o hotel.')) return;
+  await api('/cliente/reservas/' + id, {method: 'DELETE'});
+  pagina(`<p class="grande-msg">Reserva cancelada com sucesso!</p><button class="btn" onclick="andares()">Voltar a visualizar os quartos</button>`);
+}
+async function reservas() {
+  const rs = await api('/cliente/reservas');
+  pagina(`<h2>Minhas reservas</h2>` + (rs.length ? rs.map(r => `<div class="item"><div><b>Quarto ${r.quarto}</b><br>${dataBR(r.entrada)} a ${dataBR(r.saida)} · ${brl(r.valor)}<br><span class="tag ${r.status === 'pendente' ? 'reservado' : ''}">${r.status === 'pendente' ? 'aguardando pagamento' : 'paga'}</span></div>
+    <div>${r.status === 'pendente' ? `<button class="btn" onclick='pagamento(${JSON.stringify(r)})'>Pagar</button>` : ''}<button class="btn perigo" onclick="cancelar(${r.id})">Apagar reserva</button></div></div>`).join('')
+    : `<p class="grande-msg">Você não tem reservas</p><button class="btn" onclick="andares()">Fazer reservas</button>`));
+}
+
+api('/cliente/me').then(c => { S.cli = c; home(); }).catch(telaLogin);
+</script>
+</body>
+</html>
